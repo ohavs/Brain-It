@@ -12,6 +12,9 @@ html, body, #root {
   margin: 0;
   padding: 0;
   overflow: hidden;
+  /* Prevent rubber-band scroll on iOS and over-scroll on Android */
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: auto;
 }
 
 /* Blueprint / grid-paper background used on non-canvas screens */
