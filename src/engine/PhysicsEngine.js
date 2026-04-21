@@ -2,6 +2,13 @@ import Matter from 'matter-js';
 
 const { Engine, World, Bodies, Body } = Matter;
 
+// Colours exported so GameCanvas can stay in sync without duplicating them.
+export const COLORS = {
+  obstacle: '#334155',   // dark slate
+  target:   '#f97316',   // orange-500
+  player:   '#3b82f6',   // blue-500
+};
+
 /** Shared physics constants */
 export const STROKE_THICKNESS = 7; // px — matches the canvas stroke width
 
@@ -97,4 +104,67 @@ export function createBodyFromPath(points, thickness = STROKE_THICKNESS) {
     // density keeps light strokes from being unrealistically heavy
     density: 0.001,
   });
+}
+
+/**
+ * Instantiate the static obstacles, dynamic player, and sensor target
+ * defined in a level descriptor, scaled to the actual canvas dimensions.
+ *
+ * Coordinate convention (from levels.js):
+ *   x, y        — fraction of canvasW / canvasH
+ *   radius      — fraction of Math.min(canvasW, canvasH)
+ *   obstacle.w  — fraction of canvasW
+ *   obstacle.h  — fraction of canvasH
+ *   obstacle.angle — radians
+ *
+ * @param {object} level   — level descriptor from levels.js
+ * @param {number} canvasW — CSS pixel width of the canvas
+ * @param {number} canvasH — CSS pixel height of the canvas
+ * @returns {{ playerBody: Matter.Body, targetBody: Matter.Body, obstacleBodies: Matter.Body[] }}
+ */
+export function createLevelBodies(level, canvasW, canvasH) {
+  const minDim = Math.min(canvasW, canvasH);
+
+  const playerBody = Bodies.circle(
+    level.player.x * canvasW,
+    level.player.y * canvasH,
+    level.player.radius * minDim,
+    {
+      label: 'player',
+      friction: 0.35,
+      frictionAir: 0.01,
+      restitution: 0.45,
+      density: 0.003,
+    },
+  );
+
+  // isSensor = true so the ball passes through; collision events still fire.
+  const targetBody = Bodies.circle(
+    level.target.x * canvasW,
+    level.target.y * canvasH,
+    level.target.radius * minDim,
+    {
+      label: 'target',
+      isStatic: true,
+      isSensor: true,
+    },
+  );
+
+  const obstacleBodies = (level.obstacles ?? []).map((obs) =>
+    Bodies.rectangle(
+      obs.x * canvasW,
+      obs.y * canvasH,
+      obs.w * canvasW,
+      obs.h * canvasH,
+      {
+        isStatic: true,
+        label: 'obstacle',
+        angle: obs.angle ?? 0,
+        friction: 0.65,
+        restitution: 0.15,
+      },
+    ),
+  );
+
+  return { playerBody, targetBody, obstacleBodies };
 }
