@@ -309,7 +309,7 @@ const { Engine, World, Bodies, Body, Runner, Composite, Events } = Matter;
 function makeEngine() {
   return Engine.create({
     gravity: { x: 0, y: 1, scale: 0.001 },
-    enableSleeping: true,
+    enableSleeping: false,
     positionIterations: 10,
     velocityIterations: 8,
   });
@@ -674,25 +674,22 @@ function LevelSelectScreen({ levels, completedLevels, onSelect, onBack }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function HintCard({ hint, visible }) {
+  const shadow = '0 0 8px rgba(248,250,252,1), 0 1px 3px rgba(248,250,252,0.9)';
   return (
     <div className={[
-      'absolute left-5 right-5 pointer-events-none select-none',
+      'absolute left-6 right-6 pointer-events-none select-none',
       'top-1/2 -translate-y-1/2',
-      'transition-opacity duration-500',
+      'transition-opacity duration-500 flex flex-col items-center gap-3',
       visible ? 'opacity-100' : 'opacity-0',
     ].join(' ')}>
-      <div className="bg-white/95 backdrop-blur-sm rounded-3xl border border-slate-200
-                      shadow-xl px-7 py-6 flex flex-col items-center gap-3">
-        <p className="font-mono font-semibold text-slate-700 text-lg text-center
-                      leading-snug">
-          {hint}
-        </p>
-        <div className="w-10 h-px bg-slate-200" />
-        <p className="font-mono text-orange-500 text-xs uppercase tracking-widest
-                      text-center">
-          Draw a path · then tap Launch ▶
-        </p>
-      </div>
+      <p className="font-mono font-semibold text-slate-700 text-xl text-center leading-snug"
+         style={{ textShadow: shadow }}>
+        {hint}
+      </p>
+      <p className="font-mono text-orange-500 text-sm uppercase tracking-widest text-center"
+         style={{ textShadow: shadow }}>
+        Draw · then tap Launch ▶
+      </p>
     </div>
   );
 }
@@ -861,7 +858,10 @@ function GameCanvas({ level, phase, onWin, onStrokeAdded }) {
     if (phase === 'active' && engineRef.current) {
       const pBody = Composite.allBodies(engineRef.current.world)
                              .find(b => b.label === 'player');
-      if (pBody) Body.setStatic(pBody, false);
+      if (pBody) {
+        Body.setStatic(pBody, false);
+        Body.setVelocity(pBody, { x: 0, y: 0 }); // explicit wakeup
+      }
     }
   }, [phase]);
 
