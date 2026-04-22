@@ -192,6 +192,79 @@ const LEVELS = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Audio  (Web Audio API — lazy init respects browser autoplay policy)
+// ─────────────────────────────────────────────────────────────────────────────
+
+let _actx = null;
+function getActx() {
+  if (!_actx) _actx = new (window.AudioContext || window.webkitAudioContext)();
+  if (_actx.state === 'suspended') _actx.resume();
+  return _actx;
+}
+
+function sndStroke() {
+  try {
+    const c = getActx(), t = c.currentTime;
+    const buf = c.createBuffer(1, Math.floor(c.sampleRate * 0.07), c.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++)
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 1.5) * 0.28;
+    const src = c.createBufferSource(); src.buffer = buf;
+    const flt = c.createBiquadFilter();
+    flt.type = 'bandpass'; flt.frequency.value = 2800; flt.Q.value = 0.7;
+    src.connect(flt); flt.connect(c.destination);
+    src.start(t);
+  } catch (_) {}
+}
+
+function sndLaunch() {
+  try {
+    const c = getActx(), t = c.currentTime;
+    const osc = c.createOscillator(); const g = c.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(160, t);
+    osc.frequency.exponentialRampToValueAtTime(540, t + 0.18);
+    g.gain.setValueAtTime(0.26, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    osc.connect(g); g.connect(c.destination);
+    osc.start(t); osc.stop(t + 0.3);
+  } catch (_) {}
+}
+
+function sndBounce(speed) {
+  try {
+    const vol = Math.min(speed / 14, 1) * 0.2;
+    if (vol < 0.03) return;
+    const c = getActx(), t = c.currentTime;
+    const osc = c.createOscillator(); const g = c.createGain();
+    osc.type = 'sine';
+    const freq = 80 + Math.min(speed * 2.5, 200);
+    osc.frequency.setValueAtTime(freq, t);
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.35, t + 0.13);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+    osc.connect(g); g.connect(c.destination);
+    osc.start(t); osc.stop(t + 0.16);
+  } catch (_) {}
+}
+
+function sndWin() {
+  try {
+    const c = getActx();
+    [523, 659, 784, 1047].forEach((freq, i) => {
+      const t = c.currentTime + i * 0.11;
+      const osc = c.createOscillator(); const g = c.createGain();
+      osc.type = 'triangle'; osc.frequency.value = freq;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.2, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+      osc.connect(g); g.connect(c.destination);
+      osc.start(t); osc.stop(t + 0.45);
+    });
+  } catch (_) {}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Path smoother
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -597,6 +670,34 @@ function LevelSelectScreen({ levels, completedLevels, onSelect, onBack }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// HintCard  — level hint shown prominently during prep, fades after first stroke
+// ─────────────────────────────────────────────────────────────────────────────
+
+function HintCard({ hint, visible }) {
+  return (
+    <div className={[
+      'absolute left-5 right-5 pointer-events-none select-none',
+      'top-1/2 -translate-y-1/2',
+      'transition-opacity duration-500',
+      visible ? 'opacity-100' : 'opacity-0',
+    ].join(' ')}>
+      <div className="bg-white/95 backdrop-blur-sm rounded-3xl border border-slate-200
+                      shadow-xl px-7 py-6 flex flex-col items-center gap-3">
+        <p className="font-mono font-semibold text-slate-700 text-lg text-center
+                      leading-snug">
+          {hint}
+        </p>
+        <div className="w-10 h-px bg-slate-200" />
+        <p className="font-mono text-orange-500 text-xs uppercase tracking-widest
+                      text-center">
+          Draw a path · then tap Launch ▶
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GameHUD  — absolute overlay, transparent to drawing touches
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -637,14 +738,13 @@ function GameHUD({ level, phase, strokeCount, onBack, onReset, onLaunch }) {
           <span aria-hidden="true">←</span> Back
         </button>
 
-        <span className="font-mono text-[10px] text-slate-400 uppercase
-                         tracking-wider text-center leading-snug
-                         max-w-[100px] pointer-events-none">
-          {phase === 'prep' ? 'Draw, then launch!' : level.hint}
+        <span className="font-mono text-[11px] text-slate-500 text-center
+                         leading-snug max-w-[110px] pointer-events-none">
+          {level.hint}
         </span>
 
         {phase === 'prep' ? (
-          <button onClick={onLaunch} aria-label="Launch ball"
+          <button onClick={() => { sndLaunch(); onLaunch(); }} aria-label="Launch ball"
             className="flex items-center gap-1.5 bg-orange-500 active:bg-orange-600
                        text-white font-mono text-[13px] uppercase tracking-widest
                        px-5 py-3.5 rounded-2xl border-2 border-orange-400 shadow-sm
@@ -748,8 +848,9 @@ function GameCanvas({ level, phase, onWin, onStrokeAdded }) {
   const winTsRef      = useRef(0);
   const isDrawingRef  = useRef(false);
   const liveRef       = useRef([]);        // raw captured points
-  const phaseRef      = useRef(phase);
+  const phaseRef       = useRef(phase);
   const strokeCountRef = useRef(0);
+  const lastBounceRef  = useRef(0);
 
   useEffect(() => { onWinRef.current   = onWin; });
   useEffect(() => { onStrokeRef.current = onStrokeAdded; });
@@ -783,16 +884,25 @@ function GameCanvas({ level, phase, onWin, onStrokeAdded }) {
     const { player, target, obstacles } = levelBodies(level, W, H);
     World.add(engine.world, [player, target, ...obstacles]);
 
-    // Win detection
+    // Win detection + bounce sounds
     Events.on(engine, 'collisionStart', ev => {
       if (hasWonRef.current) return;
       for (const { bodyA, bodyB } of ev.pairs) {
-        if ([bodyA.label, bodyB.label].sort().join() === 'player,target') {
+        const labels = [bodyA.label, bodyB.label].sort().join();
+        if (labels === 'player,target') {
           hasWonRef.current = true;
           winTsRef.current  = Date.now();
-          // Small delay so burst plays before overlay appears
+          sndWin();
           setTimeout(() => onWinRef.current?.(), 420);
           return;
+        }
+        if (labels.includes('player')) {
+          const now = Date.now();
+          if (now - lastBounceRef.current > 80) {
+            lastBounceRef.current = now;
+            const p = bodyA.label === 'player' ? bodyA : bodyB;
+            sndBounce(Math.hypot(p.velocity.x, p.velocity.y));
+          }
         }
       }
     });
@@ -871,6 +981,7 @@ function GameCanvas({ level, phase, onWin, onStrokeAdded }) {
     if (!segs.length) return;
 
     World.add(engineRef.current.world, segs);
+    sndStroke();
     onStrokeRef.current?.(++strokeCountRef.current);
   }, []);
 
@@ -965,6 +1076,10 @@ export default function Game() {
             phase={s.phase}
             onWin={() => dispatch({ type: 'WIN' })}
             onStrokeAdded={count => dispatch({ type: 'STROKE', count })}
+          />
+          <HintCard
+            hint={level.hint}
+            visible={s.phase === 'prep' && s.strokeCount === 0}
           />
           <GameHUD
             level={level}
