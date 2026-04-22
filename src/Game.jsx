@@ -255,10 +255,9 @@ function addBoundaries(world, w, h) {
 }
 
 // Convert smoothed polyline → array of static rectangle bodies (one per segment).
-// Static bodies never move so they can't cause collision-cascade instability.
-// All segments in a stroke share the same negative group so they never
-// collide with each other (Matter.js: same negative group = never collide).
-function pathToSegments(pts, group, thickness = STROKE_W) {
+// chamfer rounds each corner so the ball rolls smoothly across segment joints
+// instead of catching on the micro-seam between adjacent rectangles.
+function pathToSegments(pts, thickness = STROKE_W) {
   const segs = [];
   for (let i = 0; i < pts.length - 1; i++) {
     const a = pts[i], b = pts[i + 1];
@@ -267,12 +266,12 @@ function pathToSegments(pts, group, thickness = STROKE_W) {
     if (len < 1) continue;
     segs.push(Bodies.rectangle(
       (a.x + b.x) / 2, (a.y + b.y) / 2,
-      len + thickness, thickness,
+      len + thickness * 1.5, thickness,   // extra overlap eliminates gaps at joints
       {
         angle: Math.atan2(dy, dx),
         isStatic: true, label: 'drawn',
-        friction: 0.55, restitution: 0.18,
-        collisionFilter: { group },
+        friction: 0.55, restitution: 0,   // no bounce off strokes → natural slide
+        chamfer: { radius: 2 },           // rounded corners → smooth rolling
       },
     ));
   }
@@ -751,7 +750,6 @@ function GameCanvas({ level, phase, onWin, onStrokeAdded }) {
   const liveRef       = useRef([]);        // raw captured points
   const phaseRef      = useRef(phase);
   const strokeCountRef = useRef(0);
-  const strokeGroupRef = useRef(0);   // decremented each stroke → unique negative group
 
   useEffect(() => { onWinRef.current   = onWin; });
   useEffect(() => { onStrokeRef.current = onStrokeAdded; });
@@ -869,8 +867,7 @@ function GameCanvas({ level, phase, onWin, onStrokeAdded }) {
     if (raw.length < 2) return;
 
     const smooth = chaikinSmooth(subsamplePoints(raw), 3);
-    const group  = --strokeGroupRef.current;   // unique negative group per stroke
-    const segs   = pathToSegments(smooth, group, STROKE_W);
+    const segs   = pathToSegments(smooth, STROKE_W);
     if (!segs.length) return;
 
     World.add(engineRef.current.world, segs);
