@@ -256,7 +256,9 @@ function addBoundaries(world, w, h) {
 
 // Convert smoothed polyline → array of static rectangle bodies (one per segment).
 // Static bodies never move so they can't cause collision-cascade instability.
-function pathToSegments(pts, thickness = STROKE_W) {
+// All segments in a stroke share the same negative group so they never
+// collide with each other (Matter.js: same negative group = never collide).
+function pathToSegments(pts, group, thickness = STROKE_W) {
   const segs = [];
   for (let i = 0; i < pts.length - 1; i++) {
     const a = pts[i], b = pts[i + 1];
@@ -270,6 +272,7 @@ function pathToSegments(pts, thickness = STROKE_W) {
         angle: Math.atan2(dy, dx),
         isStatic: true, label: 'drawn',
         friction: 0.55, restitution: 0.18,
+        collisionFilter: { group },
       },
     ));
   }
@@ -748,6 +751,7 @@ function GameCanvas({ level, phase, onWin, onStrokeAdded }) {
   const liveRef       = useRef([]);        // raw captured points
   const phaseRef      = useRef(phase);
   const strokeCountRef = useRef(0);
+  const strokeGroupRef = useRef(0);   // decremented each stroke → unique negative group
 
   useEffect(() => { onWinRef.current   = onWin; });
   useEffect(() => { onStrokeRef.current = onStrokeAdded; });
@@ -865,7 +869,8 @@ function GameCanvas({ level, phase, onWin, onStrokeAdded }) {
     if (raw.length < 2) return;
 
     const smooth = chaikinSmooth(subsamplePoints(raw), 3);
-    const segs   = pathToSegments(smooth, STROKE_W);
+    const group  = --strokeGroupRef.current;   // unique negative group per stroke
+    const segs   = pathToSegments(smooth, group, STROKE_W);
     if (!segs.length) return;
 
     World.add(engineRef.current.world, segs);
