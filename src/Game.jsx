@@ -254,28 +254,26 @@ function addBoundaries(world, w, h) {
   ]);
 }
 
-// Convert smoothed polyline → single compound rigid body (drawn stroke).
-function pathToBody(pts, thickness = STROKE_W) {
-  if (pts.length < 2) return null;
-  const parts = [];
+// Convert smoothed polyline → array of static rectangle bodies (one per segment).
+// Static bodies never move so they can't cause collision-cascade instability.
+function pathToSegments(pts, thickness = STROKE_W) {
+  const segs = [];
   for (let i = 0; i < pts.length - 1; i++) {
     const a = pts[i], b = pts[i + 1];
     const dx = b.x - a.x, dy = b.y - a.y;
     const len = Math.sqrt(dx * dx + dy * dy);
     if (len < 1) continue;
-    parts.push(Bodies.rectangle(
+    segs.push(Bodies.rectangle(
       (a.x + b.x) / 2, (a.y + b.y) / 2,
       len + thickness, thickness,
-      { angle: Math.atan2(dy, dx) },
+      {
+        angle: Math.atan2(dy, dx),
+        isStatic: true, label: 'drawn',
+        friction: 0.55, restitution: 0.18,
+      },
     ));
   }
-  if (!parts.length) return null;
-  return Body.create({
-    parts, isStatic: false,
-    friction: 0.55, frictionAir: 0.008,
-    restitution: 0.18, density: 0.001,
-    label: 'drawn',
-  });
+  return segs;
 }
 
 // Instantiate player, target (sensor), and obstacle bodies scaled to canvas px.
@@ -421,10 +419,7 @@ function renderDrawn(ctx, bodies) {
   ctx.save();
   ctx.fillStyle = COLORS.penBlue;
   ctx.shadowColor = COLORS.penBlueGlow; ctx.shadowBlur = 5;
-  drawn.forEach(b => {
-    const shapes = b.parts.length > 1 ? b.parts.slice(1) : b.parts;
-    shapes.forEach(p => { poly(ctx, p.vertices); ctx.fill(); });
-  });
+  drawn.forEach(b => { poly(ctx, b.vertices); ctx.fill(); });
   ctx.restore();
 }
 
@@ -752,6 +747,7 @@ function GameCanvas({ level, phase, onWin, onStrokeAdded }) {
   const isDrawingRef  = useRef(false);
   const liveRef       = useRef([]);        // raw captured points
   const phaseRef      = useRef(phase);
+  const strokeCountRef = useRef(0);
 
   useEffect(() => { onWinRef.current   = onWin; });
   useEffect(() => { onStrokeRef.current = onStrokeAdded; });
@@ -869,13 +865,11 @@ function GameCanvas({ level, phase, onWin, onStrokeAdded }) {
     if (raw.length < 2) return;
 
     const smooth = chaikinSmooth(subsamplePoints(raw), 3);
-    const body   = pathToBody(smooth, STROKE_W);
-    if (!body) return;
+    const segs   = pathToSegments(smooth, STROKE_W);
+    if (!segs.length) return;
 
-    World.add(engineRef.current.world, body);
-    const count = Composite.allBodies(engineRef.current.world)
-                            .filter(b => b.label === 'drawn').length;
-    onStrokeRef.current?.(count);
+    World.add(engineRef.current.world, segs);
+    onStrokeRef.current?.(++strokeCountRef.current);
   }, []);
 
   return (
