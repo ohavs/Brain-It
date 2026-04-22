@@ -674,19 +674,19 @@ function LevelSelectScreen({ levels, completedLevels, onSelect, onBack }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function HintCard({ hint, visible }) {
-  const shadow = '0 0 8px rgba(248,250,252,1), 0 1px 3px rgba(248,250,252,0.9)';
+  const shadow = '0 0 6px rgba(248,250,252,1), 0 0 12px rgba(248,250,252,1)';
   return (
     <div className={[
       'absolute left-6 right-6 pointer-events-none select-none',
-      'top-1/2 -translate-y-1/2',
-      'transition-opacity duration-500 flex flex-col items-center gap-3',
+      'top-20 flex flex-col items-center gap-1.5',
+      'transition-opacity duration-500',
       visible ? 'opacity-100' : 'opacity-0',
     ].join(' ')}>
-      <p className="font-mono font-semibold text-slate-700 text-xl text-center leading-snug"
+      <p className="font-mono font-medium text-slate-600 text-sm text-center leading-snug"
          style={{ textShadow: shadow }}>
         {hint}
       </p>
-      <p className="font-mono text-orange-500 text-sm uppercase tracking-widest text-center"
+      <p className="font-mono text-orange-500 text-[11px] uppercase tracking-widest text-center"
          style={{ textShadow: shadow }}>
         Draw · then tap Launch ▶
       </p>
@@ -852,18 +852,8 @@ function GameCanvas({ level, phase, onWin, onStrokeAdded }) {
   useEffect(() => { onWinRef.current   = onWin; });
   useEffect(() => { onStrokeRef.current = onStrokeAdded; });
 
-  // Release the ball when phase transitions to 'active'
-  useEffect(() => {
-    phaseRef.current = phase;
-    if (phase === 'active' && engineRef.current) {
-      const pBody = Composite.allBodies(engineRef.current.world)
-                             .find(b => b.label === 'player');
-      if (pBody) {
-        Body.setStatic(pBody, false);
-        Body.setVelocity(pBody, { x: 0, y: 0 }); // explicit wakeup
-      }
-    }
-  }, [phase]);
+  // Keep phaseRef in sync — the frame loop reads it directly
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
 
   // ── Engine + render loop ──────────────────────────────────────────────────
   useEffect(() => {
@@ -915,6 +905,12 @@ function GameCanvas({ level, phase, onWin, onStrokeAdded }) {
       const ctx    = canvas.getContext('2d');
       const bodies = Composite.allBodies(engine.world);
 
+      // Release ball the first frame phase becomes active
+      if (phaseRef.current === 'active') {
+        const pBody = bodies.find(b => b.label === 'player');
+        if (pBody && pBody.isStatic) Body.setStatic(pBody, false);
+      }
+
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       // Background
@@ -949,6 +945,7 @@ function GameCanvas({ level, phase, onWin, onStrokeAdded }) {
 
   const onDown = useCallback(e => {
     if (hasWonRef.current) return;
+    if (phaseRef.current === 'active') return; // drawing locked after launch
     e.preventDefault();
     canvasRef.current.setPointerCapture(e.pointerId);
     isDrawingRef.current = true;
