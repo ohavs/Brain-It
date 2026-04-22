@@ -284,7 +284,8 @@ function levelBodies(level, cw, ch) {
   const player = Bodies.circle(
     level.player.x * cw, level.player.y * ch,
     level.player.radius * m,
-    { label: 'player', friction: 0.35, frictionAir: 0.01,
+    { label: 'player', isStatic: true,
+      friction: 0.35, frictionAir: 0.01,
       restitution: 0.45, density: 0.003 },
   );
   const target = Bodies.circle(
@@ -390,7 +391,7 @@ function renderWinBurst(ctx, bodies, winTs) {
   ctx.restore();
 }
 
-function renderPlayer(ctx, bodies) {
+function renderPlayer(ctx, bodies, isPrep) {
   const b = bodies.find(b => b.label === 'player');
   if (!b) return;
   const { x, y } = b.position;
@@ -403,6 +404,14 @@ function renderPlayer(ctx, bodies) {
   ctx.strokeStyle = 'rgba(255,255,255,0.72)'; ctx.lineWidth = 2; ctx.stroke();
   ctx.fillStyle = 'rgba(255,255,255,0.36)';
   ctx.beginPath(); ctx.arc(x, y - r * 0.28, r * 0.42, 0, Math.PI * 2); ctx.fill();
+  if (isPrep) {
+    const pulse = (Math.sin(Date.now() / 500) + 1) / 2;
+    ctx.strokeStyle = `rgba(249,115,22,${0.5 + 0.3 * pulse})`;
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath(); ctx.arc(x, y, r + 8, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
   ctx.restore();
 }
 
@@ -594,7 +603,7 @@ function LevelSelectScreen({ levels, completedLevels, onSelect, onBack }) {
 // GameHUD  — absolute overlay, transparent to drawing touches
 // ─────────────────────────────────────────────────────────────────────────────
 
-function GameHUD({ level, strokeCount, onBack, onReset }) {
+function GameHUD({ level, phase, strokeCount, onBack, onReset, onLaunch }) {
   return (
     <div className="absolute inset-0 pointer-events-none flex flex-col
                     justify-between">
@@ -634,16 +643,26 @@ function GameHUD({ level, strokeCount, onBack, onReset }) {
         <span className="font-mono text-[10px] text-slate-400 uppercase
                          tracking-wider text-center leading-snug
                          max-w-[100px] pointer-events-none">
-          {level.hint}
+          {phase === 'prep' ? 'Draw, then launch!' : level.hint}
         </span>
 
-        <button onClick={onReset} aria-label="Reset level"
-          className="flex items-center gap-1.5 bg-slate-800 active:bg-slate-900
-                     text-white font-mono text-[13px] uppercase tracking-widest
-                     px-5 py-3.5 rounded-2xl border-2 border-slate-600 shadow-sm
-                     transition-transform active:scale-95 min-w-[80px] justify-center">
-          <span aria-hidden="true">↺</span> Reset
-        </button>
+        {phase === 'prep' ? (
+          <button onClick={onLaunch} aria-label="Launch ball"
+            className="flex items-center gap-1.5 bg-orange-500 active:bg-orange-600
+                       text-white font-mono text-[13px] uppercase tracking-widest
+                       px-5 py-3.5 rounded-2xl border-2 border-orange-400 shadow-sm
+                       transition-transform active:scale-95 min-w-[80px] justify-center">
+            <span aria-hidden="true">▶</span> Launch
+          </button>
+        ) : (
+          <button onClick={onReset} aria-label="Reset level"
+            className="flex items-center gap-1.5 bg-slate-800 active:bg-slate-900
+                       text-white font-mono text-[13px] uppercase tracking-widest
+                       px-5 py-3.5 rounded-2xl border-2 border-slate-600 shadow-sm
+                       transition-transform active:scale-95 min-w-[80px] justify-center">
+            <span aria-hidden="true">↺</span> Reset
+          </button>
+        )}
       </div>
     </div>
   );
@@ -722,7 +741,7 @@ function WinOverlay({ levelId, totalLevels, strokeCount, onNext, onBack }) {
 // key={resetKey} from parent remounts the component → clean physics reset.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function GameCanvas({ level, onWin, onStrokeAdded }) {
+function GameCanvas({ level, phase, onWin, onStrokeAdded }) {
   const canvasRef     = useRef(null);
   const engineRef     = useRef(null);
   const rafRef        = useRef(null);
@@ -732,9 +751,20 @@ function GameCanvas({ level, onWin, onStrokeAdded }) {
   const winTsRef      = useRef(0);
   const isDrawingRef  = useRef(false);
   const liveRef       = useRef([]);        // raw captured points
+  const phaseRef      = useRef(phase);
 
   useEffect(() => { onWinRef.current   = onWin; });
   useEffect(() => { onStrokeRef.current = onStrokeAdded; });
+
+  // Release the ball when phase transitions to 'active'
+  useEffect(() => {
+    phaseRef.current = phase;
+    if (phase === 'active' && engineRef.current) {
+      const pBody = Composite.allBodies(engineRef.current.world)
+                             .find(b => b.label === 'player');
+      if (pBody) Body.setStatic(pBody, false);
+    }
+  }, [phase]);
 
   // ── Engine + render loop ──────────────────────────────────────────────────
   useEffect(() => {
@@ -789,7 +819,7 @@ function GameCanvas({ level, onWin, onStrokeAdded }) {
       renderTarget(ctx, bodies);
       renderWinBurst(ctx, bodies, winTsRef.current);
       renderDrawn(ctx, bodies);
-      renderPlayer(ctx, bodies);
+      renderPlayer(ctx, bodies, phaseRef.current === 'prep');
       renderLiveStroke(ctx, liveRef.current);
 
       rafRef.current = requestAnimationFrame(frame);
@@ -876,6 +906,7 @@ const INIT = {
   completedLevels: [],
   resetKey: 0,
   strokeCount: 0,
+  phase: 'prep',               // 'prep' (ball frozen) | 'active' (ball live)
 };
 
 function reduce(s, a) {
@@ -884,7 +915,8 @@ function reduce(s, a) {
     case 'SELECT': return { ...s, screen: 'levelSelect' };
     case 'PLAY':   return { ...s, screen: 'playing',
                             levelId: a.id, resetKey: s.resetKey + 1,
-                            strokeCount: 0 };
+                            strokeCount: 0, phase: 'prep' };
+    case 'LAUNCH': return { ...s, phase: 'active' };
     case 'WIN': {
       const cl = s.completedLevels.includes(s.levelId)
         ? s.completedLevels
@@ -892,10 +924,10 @@ function reduce(s, a) {
       return { ...s, screen: 'win', completedLevels: cl };
     }
     case 'RESET':  return { ...s, screen: 'playing',
-                            resetKey: s.resetKey + 1, strokeCount: 0 };
+                            resetKey: s.resetKey + 1, strokeCount: 0, phase: 'prep' };
     case 'NEXT':   return { ...s, screen: 'playing',
                             levelId: Math.min(s.levelId + 1, LEVELS.length),
-                            resetKey: s.resetKey + 1, strokeCount: 0 };
+                            resetKey: s.resetKey + 1, strokeCount: 0, phase: 'prep' };
     case 'STROKE': return { ...s, strokeCount: a.count };
     default:       return s;
   }
@@ -934,14 +966,17 @@ export default function Game() {
           <GameCanvas
             key={s.resetKey}
             level={level}
+            phase={s.phase}
             onWin={() => dispatch({ type: 'WIN' })}
             onStrokeAdded={count => dispatch({ type: 'STROKE', count })}
           />
           <GameHUD
             level={level}
+            phase={s.phase}
             strokeCount={s.strokeCount}
             onBack={() => dispatch({ type: 'SELECT' })}
             onReset={() => dispatch({ type: 'RESET' })}
+            onLaunch={() => dispatch({ type: 'LAUNCH' })}
           />
           {s.screen === 'win' && (
             <WinOverlay
